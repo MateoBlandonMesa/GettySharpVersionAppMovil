@@ -39,4 +39,24 @@ data class CreateAppointmentRequest(
     val ubicacionCita: String?
 )
 
+data class Rating(
+    val id: String,
+    val professionalId: String,
+    val score: Int,
+    val comment: String? = null,
+    val createdAt: String? = null
+)
+
+data class ClientHistoryItem(
+    val appointmentId: String,
+    val professionalId: String,
+    val professionalName: String? = null,
+    val professionalPublicName: String? = null,
+    val start: String,
+    val end: String,
+    val statusName: String? = null,
+    val rating: Rating? = null,
+    val canRate: Boolean = false
+)
+
 

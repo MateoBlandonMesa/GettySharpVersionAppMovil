@@ -63,12 +63,24 @@ class AuthViewModel : ViewModel() {
                         }
                     }
                 } else {
+                    // Si no está autenticado, asegurarse de que el estado esté limpio
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         isAuthenticated = false,
                         userProfile = null,
                         errorMessage = null
                     )
+                    // Asegurar que no haya datos residuales
+                    withContext(Dispatchers.IO) {
+                        try {
+                            val session = AuthService.getSession(context)
+                            if (session == null) {
+                                AuthService.clearSession(context)
+                            }
+                        } catch (e: Exception) {
+                            // Ignorar errores al limpiar
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
@@ -132,21 +144,30 @@ class AuthViewModel : ViewModel() {
     
     fun signInWithGoogle(context: Context) {
         viewModelScope.launch {
-            // Cerrar cualquier sesión previa para forzar selección de cuenta
+            // PRIMERO: Cerrar cualquier sesión previa de Supabase
             withContext(Dispatchers.IO) {
                 try {
                     val session = AuthService.getSession(context)
                     session?.accessToken?.let { token ->
+                        android.util.Log.d("AuthViewModel", "Signing out from Supabase before new login...")
                         SupabaseAuthService.signOut(token)
                     }
-                    AuthService.clearSession(context)
                 } catch (e: Exception) {
-                    // Ignorar errores al cerrar sesión previa
-                    android.util.Log.d("AuthViewModel", "No previous session to clear: ${e.message}")
+                    android.util.Log.d("AuthViewModel", "No Supabase session to clear: ${e.message}")
                 }
             }
             
-            // Resetear el estado para forzar un nuevo inicio de sesión
+            // SEGUNDO: Limpiar la sesión local
+            withContext(Dispatchers.IO) {
+                try {
+                    android.util.Log.d("AuthViewModel", "Clearing local session before new login...")
+                    AuthService.clearSession(context)
+                } catch (e: Exception) {
+                    android.util.Log.w("AuthViewModel", "Error clearing session: ${e.message}")
+                }
+            }
+            
+            // TERCERO: Resetear el estado del ViewModel
             _uiState.value = _uiState.value.copy(
                 isLoading = true, 
                 errorMessage = null,
@@ -155,11 +176,16 @@ class AuthViewModel : ViewModel() {
             )
             isOAuthInProgress = true
             
+            // CUARTO: Pequeño delay para asegurar que todo esté limpio
+            kotlinx.coroutines.delay(300) // 300ms delay
+            
             try {
-                // Obtener URL de OAuth
+                // QUINTO: Obtener URL de OAuth con parámetros para forzar selección de cuenta
+                android.util.Log.d("AuthViewModel", "Generating OAuth URL with prompt=select_account...")
                 val result = SupabaseAuthService.signInWithOAuth("google")
                 result.fold(
                     onSuccess = { oauthUrl ->
+                        android.util.Log.d("AuthViewModel", "OAuth URL generated. Opening CustomTabs...")
                         // Abrir CustomTabs con la URL de OAuth
                         // Google requiere CustomTabs para OAuth, no WebView
                         CustomTabsHelper.openUrl(context, oauthUrl)
@@ -394,25 +420,55 @@ class AuthViewModel : ViewModel() {
     
     fun signOut(context: Context) {
         viewModelScope.launch {
+            android.util.Log.d("AuthViewModel", "signOut called")
             _uiState.value = _uiState.value.copy(isLoading = true)
             
             try {
+                // Obtener el token antes de limpiar la sesión local
                 val session = AuthService.getSession(context)
-                session?.accessToken?.let { token ->
-                    SupabaseAuthService.signOut(token)
+                val accessToken = session?.accessToken
+                
+                // PRIMERO: Limpiar la sesión local inmediatamente (en IO thread)
+                android.util.Log.d("AuthViewModel", "Clearing local session first...")
+                withContext(Dispatchers.IO) {
+                    AuthService.clearSession(context)
+                    android.util.Log.d("AuthViewModel", "Local session cleared")
                 }
                 
-                AuthService.clearSession(context)
-                
+                // SEGUNDO: Resetear el estado del ViewModel inmediatamente
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     isAuthenticated = false,
                     userProfile = null,
                     errorMessage = null
                 )
+                
+                // TERCERO: Cerrar sesión en Supabase en segundo plano (no bloquea)
+                accessToken?.let { token ->
+                    android.util.Log.d("AuthViewModel", "Signing out from Supabase in background...")
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            SupabaseAuthService.signOut(token)
+                            android.util.Log.d("AuthViewModel", "Signed out from Supabase successfully")
+                        } catch (e: Exception) {
+                            // Ignorar errores al cerrar sesión en Supabase
+                            android.util.Log.w("AuthViewModel", "Error signing out from Supabase: ${e.message}")
+                        }
+                    }
+                }
+                
+                // Verificar que se limpió correctamente
+                val isStillAuthenticated = withContext(Dispatchers.IO) {
+                    AuthService.isAuthenticated(context)
+                }
+                android.util.Log.d("AuthViewModel", "Sign out completed. Still authenticated: $isStillAuthenticated")
+                
             } catch (e: Exception) {
-                // Aún así, limpiar la sesión local
-                AuthService.clearSession(context)
+                // Aún así, asegurar que la sesión local esté limpia
+                android.util.Log.e("AuthViewModel", "Error during sign out: ${e.message}", e)
+                withContext(Dispatchers.IO) {
+                    AuthService.clearSession(context)
+                }
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     isAuthenticated = false,

@@ -20,7 +20,7 @@ fun NavGraph(navController: NavHostController) {
         startDestination = Screen.Landing.route
     ) {
         composable(Screen.Landing.route) {
-            LandingScreen(navController = navController)
+            LandingScreen(navController = navController, authViewModel = authViewModel)
         }
         
         composable(Screen.Login.route) {
@@ -74,7 +74,7 @@ fun NavGraph(navController: NavHostController) {
         }
         
         composable(Screen.MyAppointments.route) {
-            MyAppointmentsScreen(navController = navController)
+            MyAppointmentsScreen(navController = navController, authViewModel = authViewModel)
         }
         
         composable(Screen.BarberSignup.route) {

@@ -103,19 +103,53 @@ object AuthService {
     
     suspend fun clearSession(context: Context) {
         context.dataStore.edit { preferences ->
+            // Remover todas las claves relacionadas con la sesión
             preferences.remove(userIdKey)
             preferences.remove(emailKey)
             preferences.remove(accessTokenKey)
             preferences.remove(refreshTokenKey)
             preferences.remove(expiresAtKey)
             preferences.remove(userProfileKey)
+            // Asegurar que isAuthenticatedKey sea false
             preferences[isAuthenticatedKey] = false
         }
+        // Verificar que realmente se limpió
+        android.util.Log.d("AuthService", "Session cleared. isAuthenticated: ${isAuthenticated(context)}")
     }
     
     suspend fun isAuthenticated(context: Context): Boolean {
         val preferences = context.dataStore.data.first()
-        return preferences[isAuthenticatedKey] ?: false
+        val isAuth = preferences[isAuthenticatedKey] ?: false
+        
+        // Si el flag dice que no está autenticado, devolver false inmediatamente
+        if (!isAuth) {
+            return false
+        }
+        
+        // Si el flag dice que está autenticado, verificar que realmente haya datos
+        val userId = preferences[userIdKey]
+        val accessToken = preferences[accessTokenKey]
+        
+        // Solo considerar autenticado si hay userId y accessToken
+        val isReallyAuthenticated = userId != null && accessToken != null && userId.isNotEmpty() && accessToken.isNotEmpty()
+        
+        // Si el flag dice que está autenticado pero no hay datos, limpiar directamente sin llamar a clearSession para evitar recursión
+        if (!isReallyAuthenticated && isAuth) {
+            android.util.Log.w("AuthService", "isAuthenticated flag is true but no valid session data found. Clearing...")
+            // Limpiar directamente sin llamar a clearSession para evitar recursión
+            context.dataStore.edit { prefs ->
+                prefs.remove(userIdKey)
+                prefs.remove(emailKey)
+                prefs.remove(accessTokenKey)
+                prefs.remove(refreshTokenKey)
+                prefs.remove(expiresAtKey)
+                prefs.remove(userProfileKey)
+                prefs[isAuthenticatedKey] = false
+            }
+            return false
+        }
+        
+        return isReallyAuthenticated
     }
     
     fun getOAuthUrl(provider: String): String {

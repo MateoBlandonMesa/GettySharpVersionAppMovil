@@ -5,20 +5,53 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.navigation.Screen
+import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.ui.viewmodel.AuthViewModel
 
 @Composable
-fun LandingScreen(navController: NavController) {
+fun LandingScreen(
+    navController: NavController,
+    authViewModel: AuthViewModel = viewModel()
+) {
+    val context = LocalContext.current
+    val uiState by authViewModel.uiState.collectAsState()
+    
+    // Verificar estado de autenticación solo una vez al iniciar la app
+    // Si hay una sesión válida, redirigir automáticamente
+    LaunchedEffect(Unit) {
+        authViewModel.checkAuthStatus(context)
+    }
+    
+    // Si ya está autenticado después de verificar, redirigir al Dashboard
+    // Solo navegar si realmente está autenticado (no si el estado fue reseteado)
+    LaunchedEffect(uiState.isAuthenticated) {
+        if (uiState.isAuthenticated && !uiState.isLoading) {
+            if (uiState.userProfile != null && uiState.userProfile?.firstName?.isNotEmpty() == true) {
+                navController.navigate(Screen.Dashboard.route) {
+                    popUpTo(Screen.Landing.route) { inclusive = true }
+                }
+            } else {
+                navController.navigate(Screen.ProfileSetup.route) {
+                    popUpTo(Screen.Landing.route) { inclusive = true }
+                }
+            }
+        }
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()

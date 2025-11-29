@@ -22,7 +22,7 @@ android {
         // Supabase configuration
         buildConfigField("String", "SUPABASE_URL", "\"https://rnsivwuxmekckvqwonaw.supabase.co\"")
         buildConfigField("String", "SUPABASE_KEY", "\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJuc2l2d3V4bWVrY2t2cXdvbmF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkwNzE3NjIsImV4cCI6MjA3NDY0Nzc2Mn0.s8ioNGxJke4G3PCf5ejPfRPtz2wtQFrWmsEYWotE6-U\"")
-        buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:5000\"") // Android emulator localhost
+        buildConfigField("String", "API_BASE_URL", "\"https://getty-sharp-hub.onrender.com\"")
     }
 
     buildTypes {

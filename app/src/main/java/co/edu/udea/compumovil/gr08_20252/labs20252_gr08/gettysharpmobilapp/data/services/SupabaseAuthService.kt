@@ -40,8 +40,7 @@ object SupabaseAuthService {
         val encodedRedirect = java.net.URLEncoder.encode(redirectUrl, "UTF-8")
         
         // Agregar prompt=select_account para forzar que Google muestre la pantalla de selección de cuenta
-        // NOTA: Google puede ignorar esto si tiene una sesión persistente en el navegador
-        // El usuario puede necesitar cerrar sesión manualmente en el navegador para cambiar de cuenta
+        // Usar "consent select_account" para forzar tanto selección como consentimiento
         val authUrl = buildString {
             append("$supabaseUrl/auth/v1/authorize?")
             append("provider=$provider")
@@ -51,10 +50,14 @@ object SupabaseAuthService {
             // Intentar agregar query_params para forzar selección de cuenta
             // Supabase espera query_params como JSON codificado
             if (provider == "google") {
-                // Formato: {"prompt":"select_account"}
-                val queryParamsJson = """{"prompt":"select_account"}"""
+                // Intentar múltiples formatos para asegurar compatibilidad
+                // Formato 1: Con espacio (estándar OAuth 2.0)
+                // Formato 2: Sin espacio (alternativa)
+                // También agregar "access_type=offline" para forzar re-autenticación
+                val queryParamsJson = """{"prompt":"select_account consent","access_type":"offline"}"""
                 val encodedParams = java.net.URLEncoder.encode(queryParamsJson, "UTF-8")
                 append("&query_params=$encodedParams")
+                android.util.Log.d("SupabaseAuthService", "Added query_params for Google OAuth: $queryParamsJson")
             }
         }
         

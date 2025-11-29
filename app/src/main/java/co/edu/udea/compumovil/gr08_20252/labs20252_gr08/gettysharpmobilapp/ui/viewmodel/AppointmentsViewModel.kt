@@ -20,6 +20,17 @@ class AppointmentsViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(AppointmentsUiState())
     val uiState: StateFlow<AppointmentsUiState> = _uiState.asStateFlow()
     
+    private fun formatErrorMessage(e: Exception, defaultMessage: String): String {
+        return when {
+            e.message?.contains("Failed to connect", ignoreCase = true) == true || 
+            e.message?.contains("timeout", ignoreCase = true) == true ||
+            e.message?.contains("Unable to resolve host", ignoreCase = true) == true ||
+            e.message?.contains("Connection refused", ignoreCase = true) == true ->
+                "No se pudo conectar al servidor. Verifica tu conexión a internet y que el backend esté disponible en https://getty-sharp-hub.onrender.com"
+            else -> e.message ?: defaultMessage
+        }
+    }
+    
     fun loadClientAppointments(clientId: String) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
@@ -44,7 +55,7 @@ class AppointmentsViewModel : ViewModel() {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     appointments = emptyList(),
-                    errorMessage = e.message ?: "Error desconocido"
+                    errorMessage = formatErrorMessage(e, "Error desconocido al cargar las citas")
                 )
             }
         }
@@ -74,7 +85,7 @@ class AppointmentsViewModel : ViewModel() {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     appointments = emptyList(),
-                    errorMessage = e.message ?: "Error desconocido"
+                    errorMessage = formatErrorMessage(e, "Error desconocido al cargar las citas del profesional")
                 )
             }
         }
@@ -120,7 +131,7 @@ class AppointmentsViewModel : ViewModel() {
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    errorMessage = e.message ?: "Error desconocido"
+                    errorMessage = formatErrorMessage(e, "Error desconocido al crear la cita")
                 )
             }
         }
@@ -147,7 +158,58 @@ class AppointmentsViewModel : ViewModel() {
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    errorMessage = e.message ?: "Error desconocido"
+                    errorMessage = formatErrorMessage(e, "Error desconocido al cancelar la cita")
+                )
+            }
+        }
+    }
+    
+    fun rescheduleAppointment(appointmentId: String, newStart: String, newEnd: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+            
+            try {
+                // Ensure ISO format (DateTime in C# backend expects ISO 8601)
+                val startIso = try {
+                    java.time.Instant.parse(newStart).toString()
+                } catch (e: Exception) {
+                    newStart
+                }
+                val endIso = try {
+                    java.time.Instant.parse(newEnd).toString()
+                } catch (e: Exception) {
+                    newEnd
+                }
+                
+                // Backend JSON serializer converts to camelCase
+                val request = mapOf(
+                    "newStart" to startIso,
+                    "newEnd" to endIso
+                )
+                
+                val response: Response<Appointment> = ApiClient.service.rescheduleAppointment(appointmentId, request)
+                if (response.isSuccessful) {
+                    val updatedAppointment = response.body()
+                    if (updatedAppointment != null) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            appointments = _uiState.value.appointments.map {
+                                if (it.id == appointmentId) updatedAppointment else it
+                            },
+                            errorMessage = null
+                        )
+                    }
+                } else {
+                    val errorBody = response.errorBody()?.string() ?: "Unknown error"
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        errorMessage = "Error al reagendar cita: ${response.code()} - $errorBody"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    errorMessage = formatErrorMessage(e, "Error desconocido al reagendar la cita")
                 )
             }
         }

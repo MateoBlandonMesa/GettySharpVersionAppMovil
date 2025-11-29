@@ -1,8 +1,11 @@
 package co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.services
 
+import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.BuildConfig
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.Appointment
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.AvailabilityBlock
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.CreateAppointmentRequest
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -13,6 +16,7 @@ import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import java.util.concurrent.TimeUnit
 
 interface ApiService {
     @GET("/api/professionals/{professionalId}/schedule/availability")
@@ -42,14 +46,38 @@ interface ApiService {
     
     @GET("/api/appointments/statuses")
     suspend fun getAppointmentStatuses(): Response<List<Map<String, String>>>
+    
+    @PATCH("/api/appointments/{id}/reschedule")
+    suspend fun rescheduleAppointment(
+        @Path("id") id: String,
+        @Body request: Map<String, Any>
+    ): Response<Appointment>
+    
+    @POST("/api/ratings/appointments/{appointmentId}")
+    suspend fun submitRating(
+        @Path("appointmentId") appointmentId: String,
+        @Body request: Map<String, Any>
+    ): Response<Map<String, Any>>
+    
+    @GET("/api/ratings/clients/{clientId}/history")
+    suspend fun getClientHistory(@Path("clientId") clientId: String): Response<List<Map<String, Any>>>
 }
 
 object ApiClient {
-    private const val BASE_URL = "http://10.0.2.2:5000" // Android emulator localhost
-    // For physical device, use: "http://YOUR_IP:5000"
+    private val BASE_URL = BuildConfig.API_BASE_URL
+    
+    private val okHttpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .addInterceptor(HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        })
+        .build()
     
     val service: ApiService = Retrofit.Builder()
         .baseUrl(BASE_URL)
+        .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(ApiService::class.java)
