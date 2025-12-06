@@ -30,11 +30,15 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.services.ThemePreferenceManager
+import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.services.SupabaseRestClient
+import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.services.AuthService
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.navigation.Screen
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.ui.viewmodel.AuthViewModel
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.ui.viewmodel.DashboardViewModel
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,17 +59,82 @@ fun DashboardScreen(
     val isDarkTheme = themePreference ?: isSystemDark
     val scope = rememberCoroutineScope()
     
-    // Use profile from AuthViewModel if available, otherwise load from DashboardViewModel
+    // Use profile from DashboardViewModel if available (it's already enriched), otherwise use from AuthViewModel
+    val rawProfile = remember(dashboardUiState.profile, authUiState.userProfile) {
+        dashboardUiState.profile ?: authUiState.userProfile
+    }
+    
+    // Always load profile through DashboardViewModel to ensure it's enriched
+    LaunchedEffect(Unit) {
+        if (!dashboardUiState.isLoading) {
+            dashboardViewModel.loadProfile(context)
+        }
+    }
+    
+    // Use profile from DashboardViewModel (already enriched) if available, otherwise use from AuthViewModel
     val currentProfile = remember(dashboardUiState.profile, authUiState.userProfile) {
         dashboardUiState.profile ?: authUiState.userProfile
     }
     
-    // Load profile when screen appears if not available
-    LaunchedEffect(Unit) {
-        if (currentProfile == null && !dashboardUiState.isLoading) {
-            dashboardViewModel.loadProfile(context)
+    // Enrich profile from AuthViewModel if needed
+    var enrichedProfile by remember { mutableStateOf<co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.UserProfile?>(null) }
+    
+    LaunchedEffect(currentProfile) {
+        if (currentProfile != null) {
+            // If profile is from DashboardViewModel, it's already enriched
+            if (dashboardUiState.profile != null) {
+                enrichedProfile = currentProfile
+            } else {
+                // If profile is from AuthViewModel, enrich it
+                val profile = currentProfile
+                val genderIdStr = profile.gender.trim()
+                val genderIdInt = genderIdStr.toIntOrNull()
+                
+                if (genderIdInt != null) {
+                    // Need to enrich
+                    scope.launch {
+                        try {
+                            val session = AuthService.getSession(context)
+                            if (session?.accessToken != null) {
+                                val gendersResult = withContext(Dispatchers.IO) {
+                                    SupabaseRestClient.getGenders(session.accessToken)
+                                }
+                                
+                                if (gendersResult.isSuccess) {
+                                    val genders = gendersResult.getOrNull() ?: emptyList()
+                                    val genderName = genders.find { it.id == genderIdInt }?.genero
+                                    
+                                    if (genderName != null) {
+                                        val enriched = profile.copy(gender = genderName)
+                                        enrichedProfile = enriched
+                                        // Save enriched profile
+                                        AuthService.saveUserProfile(context, enriched)
+                                        android.util.Log.d("DashboardScreen", "Enriched and saved profile with gender: $genderName")
+                                    } else {
+                                        enrichedProfile = profile
+                                    }
+                                } else {
+                                    enrichedProfile = profile
+                                }
+                            } else {
+                                enrichedProfile = profile
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("DashboardScreen", "Error enriching gender: ${e.message}")
+                            enrichedProfile = profile
+                        }
+                    }
+                } else {
+                    // Already a name
+                    enrichedProfile = profile
+                }
+            }
+        } else {
+            enrichedProfile = null
         }
     }
+    
+    val displayProfile = enrichedProfile ?: currentProfile
     
     // Redirect if not authenticated
     LaunchedEffect(authUiState.isAuthenticated) {
@@ -190,7 +259,7 @@ fun DashboardScreen(
                     }
                 }
             }
-            currentProfile == null -> {
+            displayProfile == null -> {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -201,7 +270,7 @@ fun DashboardScreen(
                 }
             }
             else -> {
-                val profile = currentProfile!!
+                val profile = displayProfile!!
                 
                 Column(
                     modifier = Modifier

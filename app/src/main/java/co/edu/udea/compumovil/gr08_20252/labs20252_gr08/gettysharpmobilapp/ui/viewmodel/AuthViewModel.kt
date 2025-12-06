@@ -40,27 +40,17 @@ class AuthViewModel : ViewModel() {
                 
                 if (isAuthenticated) {
                     val session = AuthService.getSession(context)
-                    val profile = AuthService.getUserProfile(context)
                     
-                    if (session != null && profile != null) {
+                    // Always reload profile from Supabase to get enriched gender name
+                    session?.userId?.let { userId ->
+                        loadUserProfile(context, userId)
+                    } ?: run {
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            isAuthenticated = true,
-                            userProfile = profile,
+                            isAuthenticated = false,
+                            userProfile = null,
                             errorMessage = null
                         )
-                    } else {
-                        // Sesión existe pero no hay perfil - cargar desde Supabase
-                        session?.userId?.let { userId ->
-                            loadUserProfile(context, userId)
-                        } ?: run {
-                            _uiState.value = _uiState.value.copy(
-                                isLoading = false,
-                                isAuthenticated = false,
-                                userProfile = null,
-                                errorMessage = null
-                            )
-                        }
                     }
                 } else {
                     _uiState.value = _uiState.value.copy(
@@ -99,6 +89,7 @@ class AuthViewModel : ViewModel() {
             result.fold(
                 onSuccess = { profile ->
                     profile?.let {
+                        // Profile is already enriched with gender name from getUserProfile
                         // Usuario tiene perfil completo
                         AuthService.saveUserProfile(context, it)
                         _uiState.value = _uiState.value.copy(

@@ -69,6 +69,14 @@ interface SupabaseRestService {
         @Header("Authorization") authorization: String,
         @Query("select") select: String = "*"
     ): Response<List<Map<String, Any?>>>
+    
+    @GET("rest/v1/tbl_estados")
+    suspend fun getStatuses(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") authorization: String,
+        @Query("select") select: String = "*",
+        @QueryMap queryParams: Map<String, String>? = null
+    ): Response<List<Map<String, Any?>>>
 }
 
 object SupabaseRestClient {
@@ -394,12 +402,53 @@ object SupabaseRestClient {
             // Check if user is approver
             val isApprover = (userData["es_aprobador"] as? Boolean) ?: false
             
-            // Store gender ID directly - we'll get the name from tbl_generos later
+            // Get gender ID and enrich with name from tbl_generos
             val genderValue = userData["genero"]
-            val genderString = when (genderValue) {
-                is Number -> genderValue.toString() // Store as ID string, e.g., "1", "2", "3"
-                is String -> genderValue
-                else -> ""
+            val genderId = when (genderValue) {
+                is Number -> genderValue.toInt()
+                is String -> genderValue.toIntOrNull()
+                else -> null
+            }
+            
+            // Get gender name from tbl_generos
+            var genderName = ""
+            if (genderId != null) {
+                try {
+                    val gendersResponse = service.getGenders(
+                        apiKey = supabaseKey,
+                        authorization = "Bearer $accessToken",
+                        select = "id,genero"
+                    )
+                    
+                    if (gendersResponse.isSuccessful) {
+                        val gendersData = gendersResponse.body() ?: emptyList()
+                        val genderMap = gendersData.find { genderMap ->
+                            val id = when (val idValue = genderMap["id"]) {
+                                is Number -> idValue.toInt()
+                                is String -> idValue.toIntOrNull()
+                                else -> null
+                            }
+                            id == genderId
+                        }
+                        
+                        genderName = genderMap?.get("genero")?.toString() ?: ""
+                        if (genderName.isEmpty()) {
+                            android.util.Log.w("SupabaseRestClient", "Gender with ID $genderId not found in tbl_generos")
+                            genderName = genderId.toString() // Fallback to ID if not found
+                        } else {
+                            android.util.Log.d("SupabaseRestClient", "Enriched gender ID $genderId to name: $genderName")
+                        }
+                    } else {
+                        android.util.Log.w("SupabaseRestClient", "Failed to load genders: ${gendersResponse.code()}")
+                        genderName = genderId.toString() // Fallback to ID if API call fails
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("SupabaseRestClient", "Error loading gender name: ${e.message}", e)
+                    genderName = genderId?.toString() ?: "" // Fallback to ID if error
+                }
+            } else {
+                // If gender is already a string name, use it directly
+                genderName = genderValue?.toString() ?: ""
             }
             
             val profile = UserProfile(
@@ -410,7 +459,7 @@ object SupabaseRestClient {
                 phone = formatPhoneNumber(userData["telefono"]) ?: "",
                 idType = userData["tipo_documento"]?.toString() ?: "",
                 idNumber = userData["numero_documento"]?.toString() ?: "",
-                gender = genderString,
+                gender = genderName,
                 address = userData["direccion"]?.toString() ?: "",
                 fotoPerfil = userData["foto_perfil"]?.toString(),
                 isBarber = false, // Will be checked separately
@@ -632,6 +681,47 @@ object SupabaseRestClient {
                 mapOf("id" to 3, "lugar_de_trabajo" to "Ambos")
             )
             Result.success(defaultLocations)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun getGenders(accessToken: String): Result<List<co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.Gender>> {
+        return try {
+            val response = service.getGenders(
+                apiKey = supabaseKey,
+                authorization = "Bearer $accessToken",
+                select = "id,genero"
+            )
+            
+            if (response.isSuccessful) {
+                val gendersData = response.body() ?: emptyList()
+                val genders = gendersData.mapNotNull { genderMap ->
+                    try {
+                        val id = when (val idValue = genderMap["id"]) {
+                            is Number -> idValue.toInt()
+                            is String -> idValue.toIntOrNull()
+                            else -> null
+                        }
+                        val genero = genderMap["genero"]?.toString() ?: ""
+                        
+                        if (id != null && genero.isNotEmpty()) {
+                            co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.Gender(
+                                id = id,
+                                genero = genero
+                            )
+                        } else {
+                            null
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("SupabaseRestClient", "Error parsing gender: ${e.message}")
+                        null
+                    }
+                }
+                Result.success(genders)
+            } else {
+                Result.failure(Exception("Failed to get genders: ${response.code()}"))
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }

@@ -5,6 +5,8 @@ import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.CreateAppointmentRequest
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.ProfessionalApproval
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.VerificationStatus
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -15,6 +17,7 @@ import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import java.util.concurrent.TimeUnit
 
 interface ApiService {
     @GET("/api/professionals/{professionalId}/schedule/availability")
@@ -109,8 +112,17 @@ interface ApiService {
 object ApiClient {
     private const val BASE_URL = "https://getty-sharp-hub.onrender.com"
     
+    private val okHttpClient = OkHttpClient.Builder()
+        .addInterceptor(HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        })
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+    
     val service: ApiService = Retrofit.Builder()
         .baseUrl(BASE_URL)
+        .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(ApiService::class.java)

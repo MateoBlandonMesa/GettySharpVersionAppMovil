@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.UserProfile
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.services.AuthService
+import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.services.SupabaseRestClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,19 +26,41 @@ class DashboardViewModel : ViewModel() {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             
             try {
-                val profile = AuthService.getUserProfile(context)
-                
-                if (profile != null) {
+                val session = AuthService.getSession(context)
+                if (session == null || session.userId == null || session.accessToken == null) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        profile = profile,
-                        errorMessage = null
+                        errorMessage = "No hay sesión activa"
                     )
+                    return@launch
+                }
+                
+                // Load profile directly from Supabase (it will be enriched with gender name)
+                val profileResult = SupabaseRestClient.getUserProfile(session.userId, session.accessToken)
+                
+                if (profileResult.isSuccess) {
+                    val profile = profileResult.getOrNull()
+                    if (profile != null) {
+                        // Profile is already enriched with gender name from getUserProfile
+                        // Save it to AuthService for future use
+                        AuthService.saveUserProfile(context, profile)
+                        
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            profile = profile,
+                            errorMessage = null
+                        )
+                    } else {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            profile = null,
+                            errorMessage = "No se pudo cargar el perfil"
+                        )
+                    }
                 } else {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        profile = null,
-                        errorMessage = "No se pudo cargar el perfil"
+                        errorMessage = profileResult.exceptionOrNull()?.message ?: "Error al cargar perfil"
                     )
                 }
             } catch (e: Exception) {
