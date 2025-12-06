@@ -25,8 +25,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.services.ThemePreferenceManager
@@ -39,6 +41,10 @@ import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.AvailabilityBlock
+import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.services.ApiClient
+import java.text.SimpleDateFormat
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +55,7 @@ fun DashboardScreen(
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
+    var showPublishAvailabilityDialog by remember { mutableStateOf(false) }
     
     val authUiState by authViewModel.uiState.collectAsState()
     val dashboardUiState by dashboardViewModel.uiState.collectAsState()
@@ -59,14 +66,21 @@ fun DashboardScreen(
     val isDarkTheme = themePreference ?: isSystemDark
     val scope = rememberCoroutineScope()
     
-    // Use profile from DashboardViewModel if available (it's already enriched), otherwise use from AuthViewModel
-    val rawProfile = remember(dashboardUiState.profile, authUiState.userProfile) {
-        dashboardUiState.profile ?: authUiState.userProfile
-    }
-    
-    // Always load profile through DashboardViewModel to ensure it's enriched
+    // Always load profile through DashboardViewModel to ensure it's enriched with professional info
     LaunchedEffect(Unit) {
         if (!dashboardUiState.isLoading) {
+            android.util.Log.d("DashboardScreen", "Initial load: Triggering loadProfile")
+            dashboardViewModel.loadProfile(context)
+        }
+    }
+    
+    // Reload profile when screen becomes visible (e.g., returning from EditProfile)
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val isDashboardVisible = navBackStackEntry?.destination?.route == Screen.Dashboard.route
+    
+    LaunchedEffect(isDashboardVisible) {
+        if (isDashboardVisible && !dashboardUiState.isLoading) {
+            android.util.Log.d("DashboardScreen", "Dashboard visible, ensuring profile is loaded")
             dashboardViewModel.loadProfile(context)
         }
     }
@@ -76,65 +90,12 @@ fun DashboardScreen(
         dashboardUiState.profile ?: authUiState.userProfile
     }
     
-    // Enrich profile from AuthViewModel if needed
-    var enrichedProfile by remember { mutableStateOf<co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.UserProfile?>(null) }
-    
+    // Log profile information for debugging
     LaunchedEffect(currentProfile) {
-        if (currentProfile != null) {
-            // If profile is from DashboardViewModel, it's already enriched
-            if (dashboardUiState.profile != null) {
-                enrichedProfile = currentProfile
-            } else {
-                // If profile is from AuthViewModel, enrich it
-                val profile = currentProfile
-                val genderIdStr = profile.gender.trim()
-                val genderIdInt = genderIdStr.toIntOrNull()
-                
-                if (genderIdInt != null) {
-                    // Need to enrich
-                    scope.launch {
-                        try {
-                            val session = AuthService.getSession(context)
-                            if (session?.accessToken != null) {
-                                val gendersResult = withContext(Dispatchers.IO) {
-                                    SupabaseRestClient.getGenders(session.accessToken)
-                                }
-                                
-                                if (gendersResult.isSuccess) {
-                                    val genders = gendersResult.getOrNull() ?: emptyList()
-                                    val genderName = genders.find { it.id == genderIdInt }?.genero
-                                    
-                                    if (genderName != null) {
-                                        val enriched = profile.copy(gender = genderName)
-                                        enrichedProfile = enriched
-                                        // Save enriched profile
-                                        AuthService.saveUserProfile(context, enriched)
-                                        android.util.Log.d("DashboardScreen", "Enriched and saved profile with gender: $genderName")
-                                    } else {
-                                        enrichedProfile = profile
-                                    }
-                                } else {
-                                    enrichedProfile = profile
-                                }
-                            } else {
-                                enrichedProfile = profile
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.e("DashboardScreen", "Error enriching gender: ${e.message}")
-                            enrichedProfile = profile
-                        }
-                    }
-                } else {
-                    // Already a name
-                    enrichedProfile = profile
-                }
-            }
-        } else {
-            enrichedProfile = null
+        currentProfile?.let { profile ->
+            android.util.Log.d("DashboardScreen", "Profile loaded. isBarber=${profile.isBarber}, verified=${profile.verified}, verificationStatus=${profile.verificationStatus}, gender=${profile.gender}")
         }
     }
-    
-    val displayProfile = enrichedProfile ?: currentProfile
     
     // Redirect if not authenticated
     LaunchedEffect(authUiState.isAuthenticated) {
@@ -259,7 +220,7 @@ fun DashboardScreen(
                     }
                 }
             }
-            displayProfile == null -> {
+            currentProfile == null -> {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -270,7 +231,7 @@ fun DashboardScreen(
                 }
             }
             else -> {
-                val profile = displayProfile!!
+                val profile = currentProfile!!
                 
                 Column(
                     modifier = Modifier
@@ -295,11 +256,10 @@ fun DashboardScreen(
                         onFindBarbers = { navController.navigate(Screen.FindBarbers.route) },
                         onMyAppointments = { navController.navigate(Screen.MyAppointments.route) },
                         onManageAppointments = { 
-                            navController.navigate("${Screen.MyAppointments.route}?mode=manage")
+                            navController.navigate(Screen.MyAppointments.createRoute("manage"))
                         },
                         onPublishAvailability = {
-                            // Will be implemented when we create the dialog
-                            navController.navigate(Screen.EditProfile.route)
+                            showPublishAvailabilityDialog = true
                         },
                         onApprovals = { navController.navigate(Screen.Approvals.route) }
                     )
@@ -329,6 +289,16 @@ fun DashboardScreen(
                 }
             }
         }
+    }
+    
+    // Publish Availability Dialog
+    if (showPublishAvailabilityDialog && currentProfile?.isBarber == true && currentProfile.professionalId != null) {
+        PublishAvailabilityDialog(
+            professionalId = currentProfile.professionalId,
+            viewModel = dashboardViewModel,
+            open = showPublishAvailabilityDialog,
+            onDismiss = { showPublishAvailabilityDialog = false }
+        )
     }
 }
 
@@ -840,6 +810,175 @@ fun InfoRow(
                 value.ifEmpty { "No especificado" },
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+fun PublishAvailabilityDialog(
+    professionalId: String?,
+    viewModel: DashboardViewModel,
+    open: Boolean,
+    onDismiss: () -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    
+    // Load availability when dialog opens
+    LaunchedEffect(professionalId, open) {
+        if (open && professionalId != null) {
+            viewModel.loadAvailability(professionalId)
+        }
+    }
+    
+    var showAddDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf<AvailabilityBlock?>(null) }
+    
+    var availabilityDate by remember { mutableStateOf("") }
+    var availabilityStartTime by remember { mutableStateOf("") }
+    var availabilityEndTime by remember { mutableStateOf("") }
+    var availabilityNotes by remember { mutableStateOf("") }
+    
+    if (open) {
+        Dialog(onDismissRequest = onDismiss) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.9f),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                ) {
+                    // Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Gestión de Disponibilidad",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar")
+                        }
+                    }
+                    
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    
+                    // Content
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Add button
+                        Button(
+                            onClick = { showAddDialog = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Agregar Disponibilidad")
+                        }
+                        
+                        // Loading state
+                        if (uiState.isLoadingAvailability) {
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .wrapContentWidth(Alignment.CenterHorizontally)
+                            )
+                        }
+                        
+                        // Error state
+                        uiState.availabilityError?.let { error ->
+                            Text(
+                                text = error,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        
+                        // Availability blocks list
+                        if (!uiState.isLoadingAvailability && uiState.availabilityError == null) {
+                            if (uiState.availabilityBlocks.isEmpty()) {
+                                Text(
+                                    text = "No hay bloques de disponibilidad publicados",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            } else {
+                                uiState.availabilityBlocks.forEach { block ->
+                                    AvailabilityBlockItem(
+                                        block = block,
+                                        onDelete = { showDeleteDialog = block }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Add Availability Dialog
+    if (showAddDialog && professionalId != null) {
+        AddAvailabilityDialog(
+            date = availabilityDate,
+            onDateChange = { newValue -> availabilityDate = newValue },
+            startTime = availabilityStartTime,
+            onStartTimeChange = { newValue -> availabilityStartTime = newValue },
+            endTime = availabilityEndTime,
+            onEndTimeChange = { newValue -> availabilityEndTime = newValue },
+            notes = availabilityNotes,
+            onNotesChange = { newValue -> availabilityNotes = newValue },
+            isAdding = uiState.isAddingAvailability,
+            error = uiState.availabilityError,
+            onDismiss = {
+                showAddDialog = false
+                availabilityDate = ""
+                availabilityStartTime = ""
+                availabilityEndTime = ""
+                availabilityNotes = ""
+            },
+            onConfirm = {
+                viewModel.addAvailabilityBlock(
+                    professionalId = professionalId,
+                    date = availabilityDate,
+                    startTime = availabilityStartTime,
+                    endTime = availabilityEndTime,
+                    notes = availabilityNotes.takeIf { it.isNotEmpty() }
+                )
+                // Clear fields after adding
+                availabilityDate = ""
+                availabilityStartTime = ""
+                availabilityEndTime = ""
+                availabilityNotes = ""
+                showAddDialog = false
+            }
+        )
+    }
+    
+    // Delete Confirmation Dialog
+    showDeleteDialog?.let { block ->
+        if (professionalId != null) {
+            DeleteConfirmationDialog(
+                block = block,
+                onDismiss = { showDeleteDialog = null },
+                onConfirm = {
+                    viewModel.deleteAvailabilityBlock(professionalId, block.id)
+                    showDeleteDialog = null
+                }
             )
         }
     }

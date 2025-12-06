@@ -225,19 +225,9 @@ fun EditProfileScreen(
                         onWorkLocationChange = { workLocationId = it }
                     )
                     
-                    // Availability Management Section
-                    AvailabilityManagementSection(
-                        availabilityBlocks = uiState.availabilityBlocks,
-                        isLoadingAvailability = uiState.isLoadingAvailability,
-                        availabilityError = uiState.availabilityError,
-                        onAddClick = { showAddAvailabilityDialog = true },
-                        onDeleteClick = { showDeleteConfirmation = it },
-                        onRefresh = {
-                            uiState.profile?.professionalId?.let {
-                                viewModel.loadAvailability(it)
-                            }
-                        }
-                    )
+                    // Availability Management Section - REMOVED: Only shown in availability dialog from Dashboard
+                    // This section is no longer shown in EditProfile, as availability is managed through
+                    // the "Publicar disponibilidad" dialog from the Dashboard screen
                 }
                 
                 // Save button
@@ -277,13 +267,13 @@ fun EditProfileScreen(
     if (showAddAvailabilityDialog && uiState.profile?.isBarber == true) {
         AddAvailabilityDialog(
             date = availabilityDate,
-            onDateChange = { availabilityDate = it },
+            onDateChange = { newValue -> availabilityDate = newValue },
             startTime = availabilityStartTime,
-            onStartTimeChange = { availabilityStartTime = it },
+            onStartTimeChange = { newValue -> availabilityStartTime = newValue },
             endTime = availabilityEndTime,
-            onEndTimeChange = { availabilityEndTime = it },
+            onEndTimeChange = { newValue -> availabilityEndTime = newValue },
             notes = availabilityNotes,
-            onNotesChange = { availabilityNotes = it },
+            onNotesChange = { newValue -> availabilityNotes = newValue },
             isAdding = uiState.isAddingAvailability,
             error = uiState.availabilityError,
             onDismiss = {
@@ -478,6 +468,8 @@ fun PersonalInformationSection(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Suppress("DEPRECATION")
 @Composable
 fun ProfessionalInformationSection(
     username: String,
@@ -542,25 +534,30 @@ fun ProfessionalInformationSection(
             
             // Work Location
             var workLocationExpanded by remember { mutableStateOf(false) }
-            Box {
+            val selectedWorkLocationText = workLocationId?.let { id ->
+                workLocations.find { it.id == id }?.lugarDeTrabajo ?: ""
+            } ?: ""
+            
+            ExposedDropdownMenuBox(
+                expanded = workLocationExpanded,
+                onExpandedChange = { workLocationExpanded = !workLocationExpanded }
+            ) {
                 OutlinedTextField(
-                    value = workLocationId?.let { id ->
-                        workLocations.find { it.id == id }?.lugarDeTrabajo ?: ""
-                    } ?: "",
+                    value = selectedWorkLocationText,
                     onValueChange = {},
                     label = { Text("Lugar de Trabajo") },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { workLocationExpanded = true },
+                        .menuAnchor(),
                     readOnly = true,
                     trailingIcon = {
-                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = workLocationExpanded)
                     },
                     leadingIcon = {
                         Icon(Icons.Default.LocationOn, contentDescription = null)
                     }
                 )
-                DropdownMenu(
+                ExposedDropdownMenu(
                     expanded = workLocationExpanded,
                     onDismissRequest = { workLocationExpanded = false }
                 ) {

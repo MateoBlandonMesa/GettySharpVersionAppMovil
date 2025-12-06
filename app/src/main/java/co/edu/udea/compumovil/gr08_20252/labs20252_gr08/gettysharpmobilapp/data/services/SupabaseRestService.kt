@@ -536,45 +536,47 @@ object SupabaseRestClient {
     }
     
     suspend fun getProfessionalByUserId(userId: String, accessToken: String): Result<Map<String, Any?>?> {
-        return try {
-            val okHttpClient = OkHttpClient.Builder()
-                .addInterceptor(HttpLoggingInterceptor().apply {
-                    level = HttpLoggingInterceptor.Level.BODY
-                })
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .build()
-            
-            val url = "$supabaseUrl/rest/v1/tbl_profesionales?id_usuario=eq.$userId&select=*"
-            val request = Request.Builder()
-                .url(url)
-                .header("apikey", supabaseKey)
-                .header("Authorization", "Bearer $accessToken")
-                .header("Content-Type", "application/json")
-                .get()
-                .build()
-            
-            val response = okHttpClient.newCall(request).execute()
-            
-            if (!response.isSuccessful) {
-                return Result.success(null)
-            }
-            
-            val jsonArray = org.json.JSONArray(response.body?.string() ?: "[]")
-            if (jsonArray.length() > 0) {
-                val jsonObject = jsonArray.getJSONObject(0)
-                val professionalMap = mutableMapOf<String, Any?>()
-                val keys = jsonObject.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    professionalMap[key] = jsonObject.get(key)
+        return withContext(Dispatchers.IO) {
+            try {
+                val okHttpClient = OkHttpClient.Builder()
+                    .addInterceptor(HttpLoggingInterceptor().apply {
+                        level = HttpLoggingInterceptor.Level.BODY
+                    })
+                    .connectTimeout(30, TimeUnit.SECONDS)
+                    .readTimeout(30, TimeUnit.SECONDS)
+                    .build()
+                
+                val url = "$supabaseUrl/rest/v1/tbl_profesionales?id_usuario=eq.$userId&select=*"
+                val request = Request.Builder()
+                    .url(url)
+                    .header("apikey", supabaseKey)
+                    .header("Authorization", "Bearer $accessToken")
+                    .header("Content-Type", "application/json")
+                    .get()
+                    .build()
+                
+                val response = okHttpClient.newCall(request).execute()
+                
+                if (!response.isSuccessful) {
+                    return@withContext Result.success(null)
                 }
-                Result.success(professionalMap)
-            } else {
-                Result.success(null)
+                
+                val jsonArray = org.json.JSONArray(response.body?.string() ?: "[]")
+                if (jsonArray.length() > 0) {
+                    val jsonObject = jsonArray.getJSONObject(0)
+                    val professionalMap = mutableMapOf<String, Any?>()
+                    val keys = jsonObject.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        professionalMap[key] = jsonObject.get(key)
+                    }
+                    Result.success(professionalMap)
+                } else {
+                    Result.success(null)
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
             }
-        } catch (e: Exception) {
-            Result.failure(e)
         }
     }
     
