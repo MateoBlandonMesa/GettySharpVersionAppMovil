@@ -8,6 +8,11 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.Path
@@ -54,6 +59,13 @@ interface SupabaseRestService {
         @Header("Authorization") authorization: String,
         @Query("select") select: String = "*",
         @Query("nombre_estado") statusName: String? = null
+    ): Response<List<Map<String, Any?>>>
+    
+    @GET("rest/v1/tbl_generos")
+    suspend fun getGenders(
+        @Header("apikey") apiKey: String,
+        @Header("Authorization") authorization: String,
+        @Query("select") select: String = "*"
     ): Response<List<Map<String, Any?>>>
 }
 
@@ -187,6 +199,21 @@ object SupabaseRestClient {
                 return Result.success(null)
             }
             
+            // Check if user is approver
+            val isApprover = (userData["es_aprobador"] as? Boolean) ?: false
+            
+            // Convert gender to string if it's a number
+            val genderValue = userData["genero"]
+            val genderString = when (genderValue) {
+                is Number -> when (genderValue.toInt()) {
+                    1 -> "masculino"
+                    2 -> "femenino"
+                    else -> "otro"
+                }
+                is String -> genderValue
+                else -> ""
+            }
+            
             val profile = UserProfile(
                 id = userData["id"]?.toString(),
                 firstName = userData["nombre"]?.toString() ?: "",
@@ -195,7 +222,7 @@ object SupabaseRestClient {
                 phone = userData["telefono"]?.toString() ?: "",
                 idType = userData["tipo_documento"]?.toString() ?: "",
                 idNumber = userData["numero_documento"]?.toString() ?: "",
-                gender = userData["genero"]?.toString() ?: "",
+                gender = genderString,
                 address = userData["direccion"]?.toString() ?: "",
                 fotoPerfil = userData["foto_perfil"]?.toString(),
                 isBarber = false, // Will be checked separately
@@ -207,10 +234,258 @@ object SupabaseRestClient {
                 verified = false,
                 verificationStatus = null,
                 rating = 0.0,
-                ratingsCount = 0
+                ratingsCount = 0,
+                isApprover = isApprover
             )
             
             Result.success(profile)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    data class UserLocation(
+        val latitud: Double?,
+        val longitud: Double?,
+        val ubicacionId: String?,
+        val direccion: String?
+    )
+    
+    suspend fun getUserLocation(userId: String, accessToken: String): Result<UserLocation?> {
+        return try {
+            val queryParams = mapOf("id" to "eq.$userId")
+            val select = "id_ubicacion_usuario,direccion,tbl_ubicacion_usuarios(latitud_usuario,longitud_usuario)"
+            val response = service.getUsers(
+                apiKey = supabaseKey,
+                authorization = "Bearer $accessToken",
+                select = select,
+                queryParams = queryParams
+            )
+            
+            if (!response.isSuccessful) {
+                return Result.success(null)
+            }
+            
+            val userData = response.body()?.firstOrNull() ?: return Result.success(null)
+            
+            val ubicacionId = userData["id_ubicacion_usuario"]?.toString()
+            val direccion = userData["direccion"]?.toString()
+            
+            val ubicacionRaw = userData["tbl_ubicacion_usuarios"]
+            val ubicacion = when {
+                ubicacionRaw is List<*> && ubicacionRaw.isNotEmpty() -> ubicacionRaw[0] as? Map<*, *>
+                ubicacionRaw is Map<*, *> -> ubicacionRaw
+                else -> null
+            }
+            
+            val latitud = (ubicacion?.get("latitud_usuario") as? Number)?.toDouble()
+            val longitud = (ubicacion?.get("longitud_usuario") as? Number)?.toDouble()
+            
+            if (latitud == null || longitud == null) {
+                return Result.success(null)
+            }
+            
+            Result.success(
+                UserLocation(
+                    latitud = latitud,
+                    longitud = longitud,
+                    ubicacionId = ubicacionId,
+                    direccion = direccion
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun getProfessionalByUserId(userId: String, accessToken: String): Result<Map<String, Any?>?> {
+        return try {
+            val okHttpClient = OkHttpClient.Builder()
+                .addInterceptor(HttpLoggingInterceptor().apply {
+                    level = HttpLoggingInterceptor.Level.BODY
+                })
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
+            
+            val url = "$supabaseUrl/rest/v1/tbl_profesionales?id_usuario=eq.$userId&select=*"
+            val request = Request.Builder()
+                .url(url)
+                .header("apikey", supabaseKey)
+                .header("Authorization", "Bearer $accessToken")
+                .header("Content-Type", "application/json")
+                .get()
+                .build()
+            
+            val response = okHttpClient.newCall(request).execute()
+            
+            if (!response.isSuccessful) {
+                return Result.success(null)
+            }
+            
+            val jsonArray = org.json.JSONArray(response.body?.string() ?: "[]")
+            if (jsonArray.length() > 0) {
+                val jsonObject = jsonArray.getJSONObject(0)
+                val professionalMap = mutableMapOf<String, Any?>()
+                val keys = jsonObject.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    professionalMap[key] = jsonObject.get(key)
+                }
+                Result.success(professionalMap)
+            } else {
+                Result.success(null)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun checkIfProfessionalExists(userId: String, accessToken: String): Result<Boolean> {
+        return try {
+            val result = getProfessionalByUserId(userId, accessToken)
+            Result.success(result.getOrNull() != null)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun createProfessionalProfile(
+        userId: String,
+        accessToken: String,
+        username: String,
+        specialty: String,
+        workLocationId: Int,
+        description: String?,
+        verificationStatusId: String?,
+        documentationBase64: String
+    ): Result<Map<String, Any?>> {
+        return try {
+            val okHttpClient = OkHttpClient.Builder()
+                .addInterceptor(HttpLoggingInterceptor().apply {
+                    level = HttpLoggingInterceptor.Level.BODY
+                })
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
+            
+            val json = JSONObject().apply {
+                put("id_usuario", userId)
+                put("nombre_usuario_publico", username)
+                put("especialidad", specialty)
+                put("lugar_de_trabajo", workLocationId)
+                if (description != null) put("descripcion", description)
+                if (verificationStatusId != null) put("profesional_verificado", verificationStatusId)
+                put("documentacion", documentationBase64)
+            }
+            
+            val requestBody = json.toString().toRequestBody("application/json".toMediaType())
+            
+            val request = Request.Builder()
+                .url("$supabaseUrl/rest/v1/tbl_profesionales")
+                .header("apikey", supabaseKey)
+                .header("Authorization", "Bearer $accessToken")
+                .header("Content-Type", "application/json")
+                .header("Prefer", "return=representation")
+                .post(requestBody)
+                .build()
+            
+            val response = okHttpClient.newCall(request).execute()
+            
+            if (!response.isSuccessful) {
+                val errorBody = response.body?.string() ?: "Unknown error"
+                return Result.failure(Exception("Failed to create professional: ${response.code} - $errorBody"))
+            }
+            
+            val responseBody = response.body?.string() ?: "[]"
+            val jsonArray = JSONArray(responseBody)
+            
+            if (jsonArray.length() > 0) {
+                val jsonObject = jsonArray.getJSONObject(0)
+                val professionalMap = mutableMapOf<String, Any?>()
+                val keys = jsonObject.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    professionalMap[key] = jsonObject.get(key)
+                }
+                Result.success(professionalMap)
+            } else {
+                Result.failure(Exception("No data returned from professional creation"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun getVerificationStatuses(accessToken: String): Result<List<Map<String, Any?>>> {
+        return try {
+            val response = service.getVerificationStatus(
+                apiKey = supabaseKey,
+                authorization = "Bearer $accessToken"
+            )
+            
+            if (response.isSuccessful) {
+                Result.success(response.body() ?: emptyList())
+            } else {
+                Result.failure(Exception("Failed to get verification statuses: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun getWorkLocations(accessToken: String): Result<List<Map<String, Any?>>> {
+        return try {
+            // For now, return default work locations
+            // TODO: Implement query to tbl_lugares_trabajo when available
+            val defaultLocations = listOf(
+                mapOf("id" to 1, "lugar_de_trabajo" to "A Domicilio"),
+                mapOf("id" to 2, "lugar_de_trabajo" to "En mi Establecimiento"),
+                mapOf("id" to 3, "lugar_de_trabajo" to "Ambos")
+            )
+            Result.success(defaultLocations)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    suspend fun updateUserProfileImage(
+        userId: String,
+        accessToken: String,
+        imageBase64: String
+    ): Result<Unit> {
+        return try {
+            val okHttpClient = OkHttpClient.Builder()
+                .addInterceptor(HttpLoggingInterceptor().apply {
+                    level = HttpLoggingInterceptor.Level.BODY
+                })
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
+            
+            val json = JSONObject().apply {
+                put("foto_perfil", imageBase64)
+            }
+            
+            val requestBody = json.toString().toRequestBody("application/json".toMediaType())
+            
+            val request = Request.Builder()
+                .url("$supabaseUrl/rest/v1/tbl_usuarios?id=eq.$userId")
+                .header("apikey", supabaseKey)
+                .header("Authorization", "Bearer $accessToken")
+                .header("Content-Type", "application/json")
+                .header("Prefer", "return=representation")
+                .patch(requestBody)
+                .build()
+            
+            val response = okHttpClient.newCall(request).execute()
+            
+            if (!response.isSuccessful) {
+                val errorBody = response.body?.string() ?: "Unknown error"
+                return Result.failure(Exception("Failed to update profile image: ${response.code} - $errorBody"))
+            }
+            
+            Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }

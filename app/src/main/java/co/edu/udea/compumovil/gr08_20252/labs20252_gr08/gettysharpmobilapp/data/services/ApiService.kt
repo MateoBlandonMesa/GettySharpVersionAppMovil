@@ -3,6 +3,8 @@ package co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.Appointment
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.AvailabilityBlock
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.CreateAppointmentRequest
+import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.ProfessionalApproval
+import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.VerificationStatus
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -42,11 +44,70 @@ interface ApiService {
     
     @GET("/api/appointments/statuses")
     suspend fun getAppointmentStatuses(): Response<List<Map<String, String>>>
+    
+    @GET("/api/ratings/professionals/{professionalId}/summary")
+    suspend fun getProfessionalRatingSummary(
+        @Path("professionalId") professionalId: String
+    ): Response<Map<String, Any>>
+    
+    @GET("/api/ratings/professionals/summary")
+    suspend fun getProfessionalRatingSummaries(
+        @Query("ids") ids: String
+    ): Response<Map<String, Map<String, Any>>>
+    
+    @PATCH("/api/appointments/{id}/reschedule")
+    suspend fun rescheduleAppointment(
+        @Path("id") id: String,
+        @Body request: Map<String, String>
+    ): Response<Appointment>
+    
+    @POST("/api/ratings/appointments/{appointmentId}")
+    suspend fun submitRating(
+        @Path("appointmentId") appointmentId: String,
+        @Body request: Map<String, Any>
+    ): Response<Map<String, Any>>
+    
+    @GET("/api/ratings/clients/{clientId}/history")
+    suspend fun getClientHistory(
+        @Path("clientId") clientId: String
+    ): Response<List<Map<String, Any>>>
+    
+    @POST("/api/professionals/{professionalId}/schedule/availability")
+    suspend fun createAvailabilityBlock(
+        @Path("professionalId") professionalId: String,
+        @Body request: Map<String, Any>
+    ): Response<AvailabilityBlock>
+    
+    @DELETE("/api/professionals/{professionalId}/schedule/availability/{availabilityId}")
+    suspend fun deleteAvailabilityBlock(
+        @Path("professionalId") professionalId: String,
+        @Path("availabilityId") availabilityId: String
+    ): Response<Unit>
+    
+    @POST("/api/geocoding")
+    suspend fun geocodeAddress(
+        @Body request: Map<String, String>
+    ): Response<Map<String, Any>>
+    
+    @GET("/api/approvals/statuses")
+    suspend fun getVerificationStatuses(): Response<List<VerificationStatus>>
+    
+    @GET("/api/approvals/professionals")
+    suspend fun getProfessionalsForApproval(
+        @Query("approverId") approverId: String,
+        @Query("statusId") statusId: String? = null
+    ): Response<List<ProfessionalApproval>>
+    
+    @PATCH("/api/approvals/professionals/{professionalId}/status")
+    suspend fun updateProfessionalVerificationStatus(
+        @Path("professionalId") professionalId: String,
+        @Query("approverId") approverId: String,
+        @Body request: Map<String, String>
+    ): Response<ProfessionalApproval>
 }
 
 object ApiClient {
-    private const val BASE_URL = "http://10.0.2.2:5000" // Android emulator localhost
-    // For physical device, use: "http://YOUR_IP:5000"
+    private const val BASE_URL = "https://getty-sharp-hub.onrender.com"
     
     val service: ApiService = Retrofit.Builder()
         .baseUrl(BASE_URL)

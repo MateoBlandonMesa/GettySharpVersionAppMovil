@@ -73,8 +73,15 @@ fun NavGraph(navController: NavHostController) {
             FindBarbersScreen(navController = navController)
         }
         
-        composable(Screen.MyAppointments.route) {
-            MyAppointmentsScreen(navController = navController)
+        composable(
+            route = Screen.MyAppointments.route,
+            arguments = listOf(navArgument("mode") {
+                type = NavType.StringType
+                defaultValue = ""
+            })
+        ) { backStackEntry ->
+            val mode = backStackEntry.arguments?.getString("mode")?.takeIf { it.isNotEmpty() }
+            MyAppointmentsScreen(navController = navController, mode = mode)
         }
         
         composable(Screen.BarberSignup.route) {
@@ -83,6 +90,10 @@ fun NavGraph(navController: NavHostController) {
         
         composable(Screen.EditProfile.route) {
             EditProfileScreen(navController = navController)
+        }
+        
+        composable(Screen.Approvals.route) {
+            ApprovalsScreen(navController = navController)
         }
     }
 }

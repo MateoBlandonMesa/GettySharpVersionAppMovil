@@ -9,9 +9,12 @@ sealed class Screen(val route: String) {
     object ProfileSetup : Screen("profile_setup")
     object Dashboard : Screen("dashboard")
     object FindBarbers : Screen("find_barbers")
-    object MyAppointments : Screen("my_appointments")
+    object MyAppointments : Screen("my_appointments/{mode}") {
+        fun createRoute(mode: String? = null) = "my_appointments/${mode ?: ""}"
+    }
     object BarberSignup : Screen("barber_signup")
     object EditProfile : Screen("edit_profile")
+    object Approvals : Screen("approvals")
 }
 
 

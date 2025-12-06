@@ -20,7 +20,8 @@ data class UserProfile(
     val verified: Boolean = false,
     val verificationStatus: String? = null,
     val rating: Double = 0.0,
-    val ratingsCount: Int = 0
+    val ratingsCount: Int = 0,
+    val isApprover: Boolean = false
 )
 
 data class Barber(

@@ -86,6 +86,10 @@ dependencies {
     // Browser - Para CustomTabs (OAuth)
     implementation(libs.androidx.browser)
     
+    // Google Maps
+    implementation(libs.play.services.maps)
+    implementation(libs.play.services.location)
+    
     // Room - Commented temporarily, not needed for initial build
     // implementation(libs.androidx.room.runtime)
     // implementation(libs.androidx.room.ktx)

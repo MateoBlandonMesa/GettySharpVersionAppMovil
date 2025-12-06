@@ -5,11 +5,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -18,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
+import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.services.ThemePreferenceManager
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.navigation.NavGraph
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.ui.theme.GettySharpMobilAppTheme
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.ui.viewmodel.AuthViewModel
@@ -30,7 +33,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         
         setContent {
-            GettySharpMobilAppTheme {
+            val context = LocalContext.current
+            val themePreference by ThemePreferenceManager.getThemePreference(context).collectAsState(initial = null)
+            val isSystemDark = isSystemInDarkTheme()
+            val isDarkTheme = themePreference ?: isSystemDark
+            
+            GettySharpMobilAppTheme(darkTheme = isDarkTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
