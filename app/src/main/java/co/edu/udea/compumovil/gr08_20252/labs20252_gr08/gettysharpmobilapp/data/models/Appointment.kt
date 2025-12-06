@@ -39,4 +39,12 @@ data class CreateAppointmentRequest(
     val ubicacionCita: String?
 )
 
+data class CreateAvailabilityBlockRequest(
+    val start: String,
+    val end: String,
+    val minimumSlotLength: String,
+    val notes: String?,
+    val status: String
+)
+
 

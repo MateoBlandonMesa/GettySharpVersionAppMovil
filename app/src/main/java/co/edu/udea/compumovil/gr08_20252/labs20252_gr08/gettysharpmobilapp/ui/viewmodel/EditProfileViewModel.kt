@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.BuildConfig
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.AvailabilityBlock
+import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.CreateAvailabilityBlockRequest
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.Gender
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.WorkLocation
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.UserProfile
@@ -432,12 +433,12 @@ class EditProfileViewModel : ViewModel() {
                 val durationMinutes = maxOf(5, ((endDate.time - startDate.time) / 60000).toInt())
                 val minimumSlotLength = String.format("%02d:%02d:00", durationMinutes / 60, durationMinutes % 60)
 
-                val requestBody = mapOf(
-                    "start" to startDate.toInstant().toString(),
-                    "end" to endDate.toInstant().toString(),
-                    "minimumSlotLength" to minimumSlotLength,
-                    "notes" to (notes ?: ""),
-                    "status" to "disponible"
+                val requestBody = CreateAvailabilityBlockRequest(
+                    start = startDate.toInstant().toString(),
+                    end = endDate.toInstant().toString(),
+                    minimumSlotLength = minimumSlotLength,
+                    notes = notes,
+                    status = "disponible"
                 )
 
                 val response = ApiClient.service.createAvailabilityBlock(professionalId, requestBody)

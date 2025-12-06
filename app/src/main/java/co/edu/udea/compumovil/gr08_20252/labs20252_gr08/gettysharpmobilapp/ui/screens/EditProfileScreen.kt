@@ -18,13 +18,18 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.DatePickerDefaults
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
+import android.app.TimePickerDialog
+import android.widget.TimePicker
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -712,6 +717,7 @@ fun AvailabilityBlockItem(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddAvailabilityDialog(
     date: String,
@@ -727,6 +733,42 @@ fun AddAvailabilityDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
+    val context = LocalContext.current
+    
+    // Date picker state
+    val datePickerState = rememberDatePickerState()
+    var showDatePicker by remember { mutableStateOf(false) }
+    
+    
+    // DatePicker Dialog
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let { millis ->
+                            val calendar = Calendar.getInstance()
+                            calendar.timeInMillis = millis
+                            val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                            onDateChange(dateFormat.format(calendar.time))
+                        }
+                        showDatePicker = false
+                    }
+                ) {
+                    Text("Seleccionar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancelar")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+    
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Agregar Disponibilidad") },
@@ -737,41 +779,182 @@ fun AddAvailabilityDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Date
-                OutlinedTextField(
-                    value = date,
-                    onValueChange = onDateChange,
-                    label = { Text("Fecha (YYYY-MM-DD)") },
-                    placeholder = { Text("2024-01-15") },
-                    modifier = Modifier.fillMaxWidth(),
-                    leadingIcon = {
-                        Icon(Icons.Default.Star, contentDescription = null)
+                // Date picker button
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Fecha",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    OutlinedCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showDatePicker = true },
+                        colors = CardDefaults.outlinedCardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Star, contentDescription = null)
+                                Text(
+                                    text = date.ifEmpty { "Seleccionar fecha" },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = if (date.isEmpty()) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                            }
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = "Seleccionar fecha",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                )
+                }
                 
-                // Start Time
-                OutlinedTextField(
-                    value = startTime,
-                    onValueChange = onStartTimeChange,
-                    label = { Text("Hora Inicio (HH:MM)") },
-                    placeholder = { Text("09:00") },
-                    modifier = Modifier.fillMaxWidth(),
-                    leadingIcon = {
-                        Icon(Icons.Default.Edit, contentDescription = null)
+                // Start Time picker button
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Hora Inicio",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    OutlinedCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val calendar = Calendar.getInstance()
+                                if (startTime.isNotEmpty()) {
+                                    val timeParts = startTime.split(":")
+                                    if (timeParts.size == 2) {
+                                        calendar.set(Calendar.HOUR_OF_DAY, timeParts[0].toIntOrNull() ?: 0)
+                                        calendar.set(Calendar.MINUTE, timeParts[1].toIntOrNull() ?: 0)
+                                    }
+                                }
+                                TimePickerDialog(
+                                    context,
+                                    { _: TimePicker, hour: Int, minute: Int ->
+                                        onStartTimeChange(String.format("%02d:%02d", hour, minute))
+                                    },
+                                    calendar.get(Calendar.HOUR_OF_DAY),
+                                    calendar.get(Calendar.MINUTE),
+                                    true
+                                ).show()
+                            },
+                        colors = CardDefaults.outlinedCardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = null)
+                                Text(
+                                    text = startTime.ifEmpty { "Seleccionar hora inicio" },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = if (startTime.isEmpty()) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                            }
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = "Seleccionar hora",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                )
+                }
                 
-                // End Time
-                OutlinedTextField(
-                    value = endTime,
-                    onValueChange = onEndTimeChange,
-                    label = { Text("Hora Fin (HH:MM)") },
-                    placeholder = { Text("17:00") },
-                    modifier = Modifier.fillMaxWidth(),
-                    leadingIcon = {
-                        Icon(Icons.Default.Edit, contentDescription = null)
+                // End Time picker button
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Hora Fin",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    OutlinedCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val calendar = Calendar.getInstance()
+                                if (endTime.isNotEmpty()) {
+                                    val timeParts = endTime.split(":")
+                                    if (timeParts.size == 2) {
+                                        calendar.set(Calendar.HOUR_OF_DAY, timeParts[0].toIntOrNull() ?: 0)
+                                        calendar.set(Calendar.MINUTE, timeParts[1].toIntOrNull() ?: 0)
+                                    }
+                                }
+                                TimePickerDialog(
+                                    context,
+                                    { _: TimePicker, hour: Int, minute: Int ->
+                                        onEndTimeChange(String.format("%02d:%02d", hour, minute))
+                                    },
+                                    calendar.get(Calendar.HOUR_OF_DAY),
+                                    calendar.get(Calendar.MINUTE),
+                                    true
+                                ).show()
+                            },
+                        colors = CardDefaults.outlinedCardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = null)
+                                Text(
+                                    text = endTime.ifEmpty { "Seleccionar hora fin" },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = if (endTime.isEmpty()) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                            }
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = "Seleccionar hora",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                )
+                }
                 
                 // Notes
                 OutlinedTextField(

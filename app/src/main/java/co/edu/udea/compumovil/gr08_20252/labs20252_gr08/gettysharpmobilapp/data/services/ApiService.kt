@@ -3,6 +3,7 @@ package co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.Appointment
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.AvailabilityBlock
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.CreateAppointmentRequest
+import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.CreateAvailabilityBlockRequest
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.ProfessionalApproval
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.VerificationStatus
 import okhttp3.OkHttpClient
@@ -78,7 +79,7 @@ interface ApiService {
     @POST("/api/professionals/{professionalId}/schedule/availability")
     suspend fun createAvailabilityBlock(
         @Path("professionalId") professionalId: String,
-        @Body request: Map<String, Any>
+        @Body request: CreateAvailabilityBlockRequest
     ): Response<AvailabilityBlock>
     
     @DELETE("/api/professionals/{professionalId}/schedule/availability/{availabilityId}")
