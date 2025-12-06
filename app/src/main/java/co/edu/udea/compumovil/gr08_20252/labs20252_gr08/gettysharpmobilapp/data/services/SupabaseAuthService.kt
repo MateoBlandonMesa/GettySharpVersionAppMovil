@@ -114,7 +114,7 @@ object SupabaseAuthService {
             
             // Parsear el JSON para obtener el sub (user id)
             val json = org.json.JSONObject(decodedString)
-            json.optString("sub", null).takeIf { it.isNotEmpty() }
+            json.optString("sub", "").takeIf { it.isNotEmpty() }
         } catch (e: Exception) {
             android.util.Log.e("SupabaseAuthService", "Error extracting userId from token: ${e.message}")
             null
@@ -132,7 +132,7 @@ object SupabaseAuthService {
             val decodedString = String(decodedBytes)
             
             val json = org.json.JSONObject(decodedString)
-            json.optString("email", null).takeIf { it.isNotEmpty() }
+            json.optString("email", "").takeIf { it.isNotEmpty() }
         } catch (e: Exception) {
             null
         }
@@ -167,11 +167,11 @@ object SupabaseAuthService {
             val json = JSONObject(responseBody ?: "{}")
             
             val authResponse = AuthResponse(
-                accessToken = json.optString("access_token", null).takeIf { it.isNotEmpty() },
-                refreshToken = json.optString("refresh_token", null).takeIf { it.isNotEmpty() },
+                accessToken = json.optString("access_token", "").takeIf { it.isNotEmpty() },
+                refreshToken = json.optString("refresh_token", "").takeIf { it.isNotEmpty() },
                 expiresIn = json.optLong("expires_in", 0).takeIf { it > 0 },
-                userId = json.optJSONObject("user")?.optString("id", null),
-                email = json.optJSONObject("user")?.optString("email", null),
+                userId = json.optJSONObject("user")?.optString("id", "")?.takeIf { it.isNotEmpty() },
+                email = json.optJSONObject("user")?.optString("email", "")?.takeIf { it.isNotEmpty() },
                 error = null
             )
             
@@ -208,8 +208,8 @@ object SupabaseAuthService {
             val json = JSONObject(responseBody ?: "{}")
             
             val authResponse = AuthResponse(
-                accessToken = json.optString("access_token", null).takeIf { it.isNotEmpty() },
-                refreshToken = json.optString("refresh_token", null).takeIf { it.isNotEmpty() },
+                accessToken = json.optString("access_token", "").takeIf { it.isNotEmpty() },
+                refreshToken = json.optString("refresh_token", "").takeIf { it.isNotEmpty() },
                 expiresIn = json.optLong("expires_in", 0).takeIf { it > 0 },
                 userId = null, // Refresh no devuelve user
                 email = null,

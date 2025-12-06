@@ -14,8 +14,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,8 +94,29 @@ fun EditProfileScreen(
     LaunchedEffect(uiState.profile) {
         uiState.profile?.let { profile ->
             phone = profile.phone ?: ""
+            // Try to parse as ID first (e.g., "1", "2", "3"), then fall back to name matching
             genderId = profile.gender?.let { gender ->
-                uiState.genders.find { it.genero.lowercase().contains(gender.lowercase()) }?.id
+                // First, try to parse as ID directly
+                val genderIdInt = gender.trim().toIntOrNull()
+                if (genderIdInt != null) {
+                    // If it's a valid number, use it directly
+                    genderIdInt.takeIf { uiState.genders.any { it.id == genderIdInt } }
+                } else {
+                    // Otherwise, try to match by name
+                    val genderLower = gender.lowercase().trim()
+                    uiState.genders.find { genderItem ->
+                        val itemLower = genderItem.genero.lowercase().trim()
+                        itemLower == genderLower || 
+                        itemLower.contains(genderLower) || 
+                        genderLower.contains(itemLower) ||
+                        // Additional checks for common variations
+                        (genderLower.contains("hombre") && (itemLower.contains("hombre") || itemLower.contains("masculino"))) ||
+                        (genderLower.contains("mujer") && (itemLower.contains("mujer") || itemLower.contains("femenino"))) ||
+                        (genderLower.contains("masculino") && (itemLower.contains("hombre") || itemLower.contains("masculino"))) ||
+                        (genderLower.contains("femenino") && (itemLower.contains("mujer") || itemLower.contains("femenino"))) ||
+                        (genderLower.contains("otro") && itemLower.contains("otro"))
+                    }?.id
+                }
             }
             address = profile.address ?: ""
             fotoPerfilUrl = profile.fotoPerfil
@@ -117,7 +140,7 @@ fun EditProfileScreen(
                 title = { Text("Editar Perfil") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, "Volver")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver")
                     }
                 }
             )
@@ -304,6 +327,8 @@ fun EditProfileScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Suppress("DEPRECATION")
 @Composable
 fun PersonalInformationSection(
     phone: String,
@@ -342,7 +367,7 @@ fun PersonalInformationSection(
                 )
             }
             
-            Divider()
+            HorizontalDivider()
             
             // Profile Photo
             Row(
@@ -398,25 +423,30 @@ fun PersonalInformationSection(
             
             // Gender
             var genderExpanded by remember { mutableStateOf(false) }
-            Box {
+            val selectedGenderText = genderId?.let { id ->
+                genders.find { it.id == id }?.genero ?: ""
+            } ?: ""
+            
+            ExposedDropdownMenuBox(
+                expanded = genderExpanded,
+                onExpandedChange = { genderExpanded = !genderExpanded }
+            ) {
                 OutlinedTextField(
-                    value = genderId?.let { id ->
-                        genders.find { it.id == id }?.genero ?: ""
-                    } ?: "",
+                    value = selectedGenderText,
                     onValueChange = {},
                     label = { Text("Género") },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { genderExpanded = true },
+                        .menuAnchor(),
                     readOnly = true,
                     trailingIcon = {
-                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = genderExpanded)
                     },
                     leadingIcon = {
                         Icon(Icons.Default.Person, contentDescription = null)
                     }
                 )
-                DropdownMenu(
+                ExposedDropdownMenu(
                     expanded = genderExpanded,
                     onDismissRequest = { genderExpanded = false }
                 ) {
@@ -484,7 +514,7 @@ fun ProfessionalInformationSection(
                 )
             }
             
-            Divider()
+            HorizontalDivider()
             
             // Username
             OutlinedTextField(
@@ -599,7 +629,7 @@ fun AvailabilityManagementSection(
                 }
             }
             
-            Divider()
+            HorizontalDivider()
             
             if (isLoadingAvailability) {
                 CircularProgressIndicator(modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally))

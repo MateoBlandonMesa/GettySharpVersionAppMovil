@@ -7,6 +7,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -72,7 +73,7 @@ fun MyAppointmentsScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, "Volver")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver")
                     }
                 }
             )
@@ -342,7 +343,7 @@ fun ClientAppointmentCard(
                 }
             }
             
-            Divider()
+            HorizontalDivider()
             
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -507,6 +508,7 @@ fun HistoryAppointmentsTable(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+@Suppress("DEPRECATION")
 @Composable
 fun BarberAppointmentCard(
     appointment: Appointment,
@@ -531,7 +533,7 @@ fun BarberAppointmentCard(
                 fontWeight = FontWeight.Bold
             )
             
-            Divider()
+            HorizontalDivider()
             
             Row(
                 modifier = Modifier.fillMaxWidth(),

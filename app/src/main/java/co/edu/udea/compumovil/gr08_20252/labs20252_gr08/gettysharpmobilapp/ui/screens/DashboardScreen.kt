@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -132,7 +133,7 @@ fun DashboardScreen(
                             }
                         )
                         
-                        Divider()
+                        HorizontalDivider()
                         
                         DropdownMenuItem(
                             text = { Text("Cerrar Sesión") },
@@ -141,7 +142,7 @@ fun DashboardScreen(
                                 authViewModel.signOut(context)
                             },
                             leadingIcon = {
-                                Icon(Icons.Default.ExitToApp, contentDescription = null)
+                                Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null)
                             }
                         )
                     }
@@ -461,7 +462,7 @@ fun QuickActionsCard(
                 )
             }
             
-            Divider()
+            HorizontalDivider()
             
             if (profile.isBarber) {
                 // Barbero actions
@@ -627,7 +628,7 @@ fun PersonalInformationCard(
                 )
             }
             
-            Divider()
+            HorizontalDivider()
             
             InfoRow(
                 label = "Nombre Completo",
@@ -696,7 +697,7 @@ fun ProfessionalInformationCard(
                 )
             }
             
-            Divider()
+            HorizontalDivider()
             
             if (!profile.specialty.isNullOrEmpty()) {
                 InfoRow(

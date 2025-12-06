@@ -16,10 +16,12 @@ import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.services.AuthService
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.services.SupabaseRestClient
 import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -144,9 +146,13 @@ class EditProfileViewModel : ViewModel() {
                     .get()
                     .build()
 
-                val response = okHttpClient.newCall(request).execute()
+                val response = withContext(Dispatchers.IO) {
+                    okHttpClient.newCall(request).execute()
+                }
                 if (response.isSuccessful) {
-                    val jsonArray = org.json.JSONArray(response.body?.string() ?: "[]")
+                    val jsonArray = withContext(Dispatchers.IO) {
+                        org.json.JSONArray(response.body?.string() ?: "[]")
+                    }
                     val genders = mutableListOf<Gender>()
                     for (i in 0 until jsonArray.length()) {
                         val jsonObject = jsonArray.getJSONObject(i)
@@ -243,56 +249,120 @@ class EditProfileViewModel : ViewModel() {
                 val accessToken = session.accessToken
 
                 // Update user profile
+                android.util.Log.d("EditProfileViewModel", "Starting profile update - phone: $phone, genderId: $genderId, address: $address")
+                android.util.Log.d("EditProfileViewModel", "Current genders available: ${_uiState.value.genders.map { "${it.id}=${it.genero}" }}")
+                
                 val userUpdate = JSONObject().apply {
-                    if (phone != null) put("telefono", phone.toIntOrNull())
-                    if (genderId != null) put("genero", genderId)
-                    if (address != null) put("direccion", address)
-                    if (fotoPerfil != null) put("foto_perfil", fotoPerfil)
+                    if (phone != null && phone.isNotEmpty()) {
+                        val phoneDigits = phone.replace(Regex("[^0-9]"), "")
+                        if (phoneDigits.isNotEmpty()) {
+                            // Use Long to support large phone numbers
+                            val phoneLong = phoneDigits.toLongOrNull()
+                            if (phoneLong != null) {
+                                put("telefono", phoneLong)
+                                android.util.Log.d("EditProfileViewModel", "Added phone to update: $phoneLong")
+                            } else {
+                                android.util.Log.w("EditProfileViewModel", "Could not convert phone to long: $phone")
+                            }
+                        }
+                    }
+                    // Always send gender if provided - this ensures it's saved even if it's the only change
+                    if (genderId != null) {
+                        put("genero", genderId)
+                        android.util.Log.d("EditProfileViewModel", "Added gender to update: $genderId")
+                    } else {
+                        android.util.Log.w("EditProfileViewModel", "Gender ID is null, not sending gender update")
+                    }
+                    if (address != null && address.isNotEmpty()) {
+                        put("direccion", address)
+                        android.util.Log.d("EditProfileViewModel", "Added address to update")
+                    }
+                    if (fotoPerfil != null && fotoPerfil.isNotEmpty()) {
+                        put("foto_perfil", fotoPerfil)
+                        android.util.Log.d("EditProfileViewModel", "Added profile image to update")
+                    }
                 }
 
-                val userRequest = Request.Builder()
-                    .url("$supabaseUrl/rest/v1/tbl_usuarios?id=eq.$userId")
-                    .header("apikey", supabaseKey)
-                    .header("Authorization", "Bearer $accessToken")
-                    .header("Content-Type", "application/json")
-                    .header("Prefer", "return=representation")
-                    .patch(userUpdate.toString().toRequestBody("application/json".toMediaType()))
-                    .build()
+                android.util.Log.d("EditProfileViewModel", "User update JSON length: ${userUpdate.length()}, content: ${userUpdate.toString()}")
 
-                val userResponse = okHttpClient.newCall(userRequest).execute()
-                if (!userResponse.isSuccessful) {
-                    _uiState.value = _uiState.value.copy(
-                        isSaving = false,
-                        errorMessage = "Error al actualizar usuario: ${userResponse.code}"
-                    )
-                    return@launch
+                // Only update if there are changes
+                if (userUpdate.length() > 0) {
+                    val userRequest = Request.Builder()
+                        .url("$supabaseUrl/rest/v1/tbl_usuarios?id=eq.$userId")
+                        .header("apikey", supabaseKey)
+                        .header("Authorization", "Bearer $accessToken")
+                        .header("Content-Type", "application/json")
+                        .header("Prefer", "return=representation")
+                        .patch(userUpdate.toString().toRequestBody("application/json".toMediaType()))
+                        .build()
+
+                    android.util.Log.d("EditProfileViewModel", "Sending PATCH request to update user profile")
+                    val userResponse = withContext(Dispatchers.IO) {
+                        okHttpClient.newCall(userRequest).execute()
+                    }
+                    android.util.Log.d("EditProfileViewModel", "Response code: ${userResponse.code}, successful: ${userResponse.isSuccessful}")
+                    
+                    if (!userResponse.isSuccessful) {
+                        val errorBody = withContext(Dispatchers.IO) {
+                            try {
+                                userResponse.body?.string() ?: "Sin detalles del error"
+                            } catch (e: Exception) {
+                                "Error al leer respuesta: ${e.message}"
+                            }
+                        }
+                        android.util.Log.e("EditProfileViewModel", "Error updating user: ${userResponse.code} - Body: $errorBody - Request: ${userUpdate.toString()}")
+                        _uiState.value = _uiState.value.copy(
+                            isSaving = false,
+                            errorMessage = "Error al actualizar usuario (${userResponse.code}): $errorBody"
+                        )
+                        return@launch
+                    }
+                    android.util.Log.d("EditProfileViewModel", "User profile updated successfully")
+                } else {
+                    android.util.Log.d("EditProfileViewModel", "No user changes to save - JSON is empty")
                 }
 
                 // Update professional profile if barber
                 val currentProfile = _uiState.value.profile
                 if (currentProfile?.isBarber == true && (username != null || specialty != null || workLocationId != null)) {
                     val professionalUpdate = JSONObject().apply {
-                        if (username != null) put("nombre_usuario_publico", username)
-                        if (specialty != null) put("especialidad", specialty)
+                        if (username != null && username.isNotEmpty()) put("nombre_usuario_publico", username)
+                        if (specialty != null && specialty.isNotEmpty()) put("especialidad", specialty)
                         if (workLocationId != null) put("lugar_de_trabajo", workLocationId)
                     }
 
-                    val professionalRequest = Request.Builder()
-                        .url("$supabaseUrl/rest/v1/tbl_profesionales?id_usuario=eq.$userId")
-                        .header("apikey", supabaseKey)
-                        .header("Authorization", "Bearer $accessToken")
-                        .header("Content-Type", "application/json")
-                        .header("Prefer", "return=representation")
-                        .patch(professionalUpdate.toString().toRequestBody("application/json".toMediaType()))
-                        .build()
+                    // Only update if there are changes
+                    if (professionalUpdate.length() > 0) {
+                        val professionalRequest = Request.Builder()
+                            .url("$supabaseUrl/rest/v1/tbl_profesionales?id_usuario=eq.$userId")
+                            .header("apikey", supabaseKey)
+                            .header("Authorization", "Bearer $accessToken")
+                            .header("Content-Type", "application/json")
+                            .header("Prefer", "return=representation")
+                            .patch(professionalUpdate.toString().toRequestBody("application/json".toMediaType()))
+                            .build()
 
-                    val professionalResponse = okHttpClient.newCall(professionalRequest).execute()
-                    if (!professionalResponse.isSuccessful) {
-                        _uiState.value = _uiState.value.copy(
-                            isSaving = false,
-                            errorMessage = "Error al actualizar perfil profesional: ${professionalResponse.code}"
-                        )
-                        return@launch
+                        val professionalResponse = withContext(Dispatchers.IO) {
+                            okHttpClient.newCall(professionalRequest).execute()
+                        }
+                        if (!professionalResponse.isSuccessful) {
+                            val errorBody = withContext(Dispatchers.IO) {
+                                try {
+                                    professionalResponse.body?.string() ?: "Sin detalles del error"
+                                } catch (e: Exception) {
+                                    "Error al leer respuesta: ${e.message}"
+                                }
+                            }
+                            android.util.Log.e("EditProfileViewModel", "Error updating professional: ${professionalResponse.code} - Body: $errorBody - Request: ${professionalUpdate.toString()}")
+                            _uiState.value = _uiState.value.copy(
+                                isSaving = false,
+                                errorMessage = "Error al actualizar perfil profesional (${professionalResponse.code}): $errorBody"
+                            )
+                            return@launch
+                        }
+                        android.util.Log.d("EditProfileViewModel", "Professional profile updated successfully")
+                    } else {
+                        android.util.Log.d("EditProfileViewModel", "No professional changes to save")
                     }
                 }
 
@@ -322,17 +392,19 @@ class EditProfileViewModel : ViewModel() {
                     }
                 }
 
-                // Reload profile
-                loadProfile(context)
-
+                // Mark as successful - don't reload profile automatically
+                // The user can refresh manually if needed
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    saveSuccess = true
+                    saveSuccess = true,
+                    errorMessage = null
                 )
             } catch (e: Exception) {
+                android.util.Log.e("EditProfileViewModel", "Error updating profile: ${e.message}", e)
+                e.printStackTrace()
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    errorMessage = e.message ?: "Error desconocido"
+                    errorMessage = "Error inesperado: ${e.message ?: e.javaClass.simpleName}. Por favor intenta nuevamente."
                 )
             }
         }

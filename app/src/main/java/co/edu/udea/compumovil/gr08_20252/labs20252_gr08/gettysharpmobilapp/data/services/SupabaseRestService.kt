@@ -3,6 +3,8 @@ package co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.BuildConfig
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.Barber
 import co.edu.udea.compumovil.gr08_20252.labs20252_gr08.gettysharpmobilapp.data.models.UserProfile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Response
@@ -109,7 +111,10 @@ object SupabaseRestClient {
     
     suspend fun getVerifiedBarbers(): Result<List<Barber>> {
         return try {
-            // Get verification status
+            // Try to get verification status - first try exact match, then try to find by name pattern using OkHttp
+            var verifiedStatusId: String? = null
+            
+            // First, try exact match
             val statusResponse = service.getVerificationStatus(
                 apiKey = supabaseKey,
                 authorization = "Bearer $supabaseKey",
@@ -117,58 +122,245 @@ object SupabaseRestClient {
                 statusName = "eq.Verificado"
             )
             
-            if (!statusResponse.isSuccessful) {
-                return Result.failure(Exception("Failed to get verification status: ${statusResponse.code()}"))
+            if (statusResponse.isSuccessful && statusResponse.body()?.isNotEmpty() == true) {
+                val verifiedStatus = statusResponse.body()?.firstOrNull()
+                verifiedStatusId = verifiedStatus?.get("id")?.toString()
             }
             
-            val verifiedStatus = statusResponse.body()?.firstOrNull()
-            val verifiedStatusId = verifiedStatus?.get("id")?.toString()
-            
+            // If not found, try to get all statuses using OkHttp directly and find one that contains "verificado"
             if (verifiedStatusId == null) {
-                return Result.failure(Exception("Verification status not found"))
+                try {
+                    val okHttpClient = OkHttpClient.Builder()
+                        .addInterceptor(HttpLoggingInterceptor().apply {
+                            level = HttpLoggingInterceptor.Level.BODY
+                        })
+                        .connectTimeout(30, TimeUnit.SECONDS)
+                        .readTimeout(30, TimeUnit.SECONDS)
+                        .build()
+                    
+                    val url = "$supabaseUrl/rest/v1/tbl_estados?select=id,nombre_estado"
+                    val request = okhttp3.Request.Builder()
+                        .url(url)
+                        .header("apikey", supabaseKey)
+                        .header("Authorization", "Bearer $supabaseKey")
+                        .header("Content-Type", "application/json")
+                        .get()
+                        .build()
+                    
+                    val response: okhttp3.Response = withContext(Dispatchers.IO) {
+                        okHttpClient.newCall(request).execute()
+                    }
+                    
+                    if (response.isSuccessful) {
+                        val responseBody = response.body?.string() ?: "[]"
+                        val jsonArray = org.json.JSONArray(responseBody)
+                        val allStatuses = mutableListOf<Map<String, Any?>>()
+                        
+                        for (i in 0 until jsonArray.length()) {
+                            val jsonObject = jsonArray.getJSONObject(i)
+                            val statusMap = mutableMapOf<String, Any?>()
+                            val keys = jsonObject.keys()
+                            while (keys.hasNext()) {
+                                val key = keys.next()
+                                statusMap[key] = jsonObject.get(key)
+                            }
+                            allStatuses.add(statusMap)
+                        }
+                        
+                        verifiedStatusId = allStatuses.firstOrNull { status ->
+                            val name = (status["nombre_estado"] as? String) ?: ""
+                            val normalized = normalizeStatusName(name)
+                            normalized.contains("verificado")
+                        }?.get("id")?.toString()
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("SupabaseRestClient", "Could not fetch all verification statuses: ${e.message}")
+                    // Continue without filtering
+                }
             }
             
-            // Get professionals with verified status
+            // Get professionals (without nested relations)
             val professionalsResponse = service.getProfessionals(
                 apiKey = supabaseKey,
                 authorization = "Bearer $supabaseKey",
-                select = "id,id_usuario,tbl_usuarios(nombre,apellido,foto_perfil),tbl_ubicacion_usuarios(latitud,longitud,direccion,id as ubicacion_id),profesional_verificado,profesional_lugar_de_trabajo"
+                select = "id,id_usuario,profesional_verificado,lugar_de_trabajo"
             )
             
             if (!professionalsResponse.isSuccessful) {
-                return Result.failure(Exception("Failed to get professionals: ${professionalsResponse.code()}"))
+                val errorBody = professionalsResponse.errorBody()?.string() ?: "Unknown error"
+                android.util.Log.e("SupabaseRestClient", "Failed to get professionals: ${professionalsResponse.code()}, body: $errorBody")
+                return Result.failure(Exception("Failed to get professionals: ${professionalsResponse.code()} - $errorBody"))
             }
             
             val professionalsData = professionalsResponse.body() ?: emptyList()
             
-            val barbers = professionalsData.mapNotNull { prof ->
+            if (professionalsData.isEmpty()) {
+                android.util.Log.d("SupabaseRestClient", "No professionals found")
+                return Result.success(emptyList())
+            }
+            
+            // Extract user IDs
+            val userIds = professionalsData.mapNotNull { prof ->
+                prof["id_usuario"]?.toString()
+            }.distinct()
+            
+            if (userIds.isEmpty()) {
+                android.util.Log.d("SupabaseRestClient", "No user IDs found in professionals")
+                return Result.success(emptyList())
+            }
+            
+            // Get users with their basic info and location ID using OkHttp
+            val okHttpClient = OkHttpClient.Builder()
+                .addInterceptor(HttpLoggingInterceptor().apply {
+                    level = HttpLoggingInterceptor.Level.BODY
+                })
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
+            
+            // Build query for users: id=in.(id1,id2,id3)
+            val userIdsParam = userIds.joinToString(",")
+            val usersUrl = "$supabaseUrl/rest/v1/tbl_usuarios?select=id,nombre,apellido,direccion,foto_perfil,id_ubicacion_usuario&id=in.($userIdsParam)"
+            val usersRequest = okhttp3.Request.Builder()
+                .url(usersUrl)
+                .header("apikey", supabaseKey)
+                .header("Authorization", "Bearer $supabaseKey")
+                .header("Content-Type", "application/json")
+                .get()
+                .build()
+            
+            val usersResponse: okhttp3.Response = withContext(Dispatchers.IO) {
+                okHttpClient.newCall(usersRequest).execute()
+            }
+            
+            if (!usersResponse.isSuccessful) {
+                val errorBody = usersResponse.body?.string() ?: "Unknown error"
+                android.util.Log.e("SupabaseRestClient", "Failed to get users: ${usersResponse.code}, body: $errorBody")
+                return Result.failure(Exception("Failed to get users: ${usersResponse.code} - $errorBody"))
+            }
+            
+            val usersResponseBody = usersResponse.body?.string() ?: "[]"
+            val usersJsonArray = org.json.JSONArray(usersResponseBody)
+            val usersData = mutableListOf<Map<String, Any?>>()
+            
+            for (i in 0 until usersJsonArray.length()) {
+                val jsonObject = usersJsonArray.getJSONObject(i)
+                val userMap = mutableMapOf<String, Any?>()
+                val keys = jsonObject.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    userMap[key] = jsonObject.get(key)
+                }
+                usersData.add(userMap)
+            }
+            
+            // Extract location IDs
+            val ubicacionIds = usersData.mapNotNull { user ->
+                user["id_ubicacion_usuario"]?.toString()
+            }.distinct().filter { it.isNotEmpty() }
+            
+            // Get locations using OkHttp
+            val ubicacionesById = mutableMapOf<String, Map<String, Any?>>()
+            if (ubicacionIds.isNotEmpty()) {
+                val ubicacionIdsParam = ubicacionIds.joinToString(",")
+                val ubicacionesUrl = "$supabaseUrl/rest/v1/tbl_ubicacion_usuarios?select=id,latitud_usuario,longitud_usuario&id=in.($ubicacionIdsParam)"
+                val ubicacionesRequest = okhttp3.Request.Builder()
+                    .url(ubicacionesUrl)
+                    .header("apikey", supabaseKey)
+                    .header("Authorization", "Bearer $supabaseKey")
+                    .header("Content-Type", "application/json")
+                    .get()
+                    .build()
+                
+                val ubicacionesResponse: okhttp3.Response = withContext(Dispatchers.IO) {
+                    okHttpClient.newCall(ubicacionesRequest).execute()
+                }
+                
+                if (ubicacionesResponse.isSuccessful) {
+                    val ubicacionesResponseBody = ubicacionesResponse.body?.string() ?: "[]"
+                    val ubicacionesJsonArray = org.json.JSONArray(ubicacionesResponseBody)
+                    
+                    for (i in 0 until ubicacionesJsonArray.length()) {
+                        val jsonObject = ubicacionesJsonArray.getJSONObject(i)
+                        val ubicacionMap = mutableMapOf<String, Any?>()
+                        val keys = jsonObject.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            ubicacionMap[key] = jsonObject.get(key)
+                        }
+                        val ubicacionId = ubicacionMap["id"]?.toString()
+                        if (ubicacionId != null) {
+                            ubicacionesById[ubicacionId] = ubicacionMap
+                        }
+                    }
+                } else {
+                    android.util.Log.w("SupabaseRestClient", "Failed to get locations: ${ubicacionesResponse.code}")
+                }
+            }
+            
+            // Build users map with location data
+            val usersById = mutableMapOf<String, Map<String, Any?>>()
+            usersData.forEach { user ->
+                val userId = user["id"]?.toString() ?: return@forEach
+                val ubicacionId = user["id_ubicacion_usuario"]?.toString()
+                val ubicacion = if (ubicacionId != null) ubicacionesById[ubicacionId] else null
+                
+                val enrichedUser = mutableMapOf<String, Any?>().apply {
+                    putAll(user)
+                    put("latitud", ubicacion?.get("latitud_usuario"))
+                    put("longitud", ubicacion?.get("longitud_usuario"))
+                    put("ubicacionId", ubicacionId)
+                }
+                usersById[userId] = enrichedUser
+            }
+            
+            // Combine professionals with user and location data
+            @Suppress("UNCHECKED_CAST")
+            val allBarbers = professionalsData.mapNotNull { prof ->
                 try {
-                    val usuarioData = (prof["tbl_usuarios"] as? List<Map<String, Any?>>)?.firstOrNull()
-                    val ubicacionData = (prof["tbl_ubicacion_usuarios"] as? List<Map<String, Any?>>)?.firstOrNull()
+                    val profId = prof["id"]?.toString() ?: return@mapNotNull null
+                    val userId = prof["id_usuario"]?.toString()
+                    val userData = if (userId != null) usersById[userId] else null
                     
                     Barber(
-                        id = prof["id"]?.toString() ?: return@mapNotNull null,
-                        nombre = usuarioData?.get("nombre")?.toString(),
-                        apellido = usuarioData?.get("apellido")?.toString(),
-                        fotoPerfil = usuarioData?.get("foto_perfil")?.toString(),
-                        latitud = ubicacionData?.get("latitud")?.toString()?.toDoubleOrNull(),
-                        longitud = ubicacionData?.get("longitud")?.toString()?.toDoubleOrNull(),
-                        direccion = ubicacionData?.get("direccion")?.toString(),
-                        ubicacionId = ubicacionData?.get("ubicacion_id")?.toString(),
+                        id = profId,
+                        nombre = userData?.get("nombre")?.toString(),
+                        apellido = userData?.get("apellido")?.toString(),
+                        fotoPerfil = userData?.get("foto_perfil")?.toString(),
+                        latitud = (userData?.get("latitud") as? Number)?.toDouble(),
+                        longitud = (userData?.get("longitud") as? Number)?.toDouble(),
+                        direccion = userData?.get("direccion")?.toString(),
+                        ubicacionId = userData?.get("ubicacionId")?.toString(),
                         verificationStatusId = prof["profesional_verificado"]?.toString(),
-                        lugarDeTrabajo = prof["profesional_lugar_de_trabajo"]?.toString()?.toIntOrNull(),
+                        lugarDeTrabajo = prof["lugar_de_trabajo"]?.toString()?.toIntOrNull(),
                         ratingAverage = null,
                         ratingsCount = null
                     )
                 } catch (e: Exception) {
+                    android.util.Log.e("SupabaseRestClient", "Error creating barber: ${e.message}", e)
                     null
                 }
             }
             
+            // Filter by verification status if found, otherwise return all professionals
+            val barbers = if (verifiedStatusId != null) {
+                allBarbers.filter { it.verificationStatusId == verifiedStatusId }
+            } else {
+                // Return all professionals if verification status not found
+                android.util.Log.d("SupabaseRestClient", "Verification status not found, returning all professionals")
+                allBarbers
+            }
+            
+            android.util.Log.d("SupabaseRestClient", "Loaded ${barbers.size} barbers (${allBarbers.size} total, filtered by status: ${verifiedStatusId != null})")
             Result.success(barbers)
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+    
+    private fun normalizeStatusName(name: String): String {
+        return java.text.Normalizer.normalize(name.lowercase(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}"), "")
     }
     
     suspend fun getUserProfile(userId: String, accessToken: String): Result<UserProfile?> {
@@ -202,14 +394,10 @@ object SupabaseRestClient {
             // Check if user is approver
             val isApprover = (userData["es_aprobador"] as? Boolean) ?: false
             
-            // Convert gender to string if it's a number
+            // Store gender ID directly - we'll get the name from tbl_generos later
             val genderValue = userData["genero"]
             val genderString = when (genderValue) {
-                is Number -> when (genderValue.toInt()) {
-                    1 -> "masculino"
-                    2 -> "femenino"
-                    else -> "otro"
-                }
+                is Number -> genderValue.toString() // Store as ID string, e.g., "1", "2", "3"
                 is String -> genderValue
                 else -> ""
             }
@@ -219,7 +407,7 @@ object SupabaseRestClient {
                 firstName = userData["nombre"]?.toString() ?: "",
                 lastName = userData["apellido"]?.toString() ?: "",
                 email = userData["email"]?.toString() ?: "",
-                phone = userData["telefono"]?.toString() ?: "",
+                phone = formatPhoneNumber(userData["telefono"]) ?: "",
                 idType = userData["tipo_documento"]?.toString() ?: "",
                 idNumber = userData["numero_documento"]?.toString() ?: "",
                 gender = genderString,
@@ -488,6 +676,29 @@ object SupabaseRestClient {
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+    
+    private fun formatPhoneNumber(phoneValue: Any?): String? {
+        if (phoneValue == null) return null
+        
+        return when (phoneValue) {
+            is Number -> {
+                // Use toLong() to handle large numbers properly, then convert to string
+                // This avoids scientific notation for large integers
+                when (phoneValue) {
+                    is Double, is Float -> {
+                        // For floating point numbers, convert to long first
+                        phoneValue.toLong().toString()
+                    }
+                    else -> {
+                        // For integer types, use toLong() to handle large numbers
+                        phoneValue.toLong().toString()
+                    }
+                }
+            }
+            is String -> phoneValue
+            else -> phoneValue.toString()
         }
     }
 }
